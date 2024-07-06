@@ -30,7 +30,7 @@
 use std::{error::Error, io};
 
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -40,8 +40,9 @@ use ratatui::{
     style::{Modifier, Style, Stylize},
     terminal::{Frame, Terminal},
     text::{Line, Text},
-    widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs},
 };
+
 use tui_textarea::{Input, Key, TextArea};
 
 enum InputMode {
@@ -85,9 +86,8 @@ impl App {
     fn submit_message(&mut self) {
         let mut new_textarea = Self::new_textarea();
         std::mem::swap(&mut self.textarea, &mut new_textarea);
-        for line in new_textarea.into_lines() {
-            self.messages.push(line);
-        }
+        let lines = new_textarea.into_lines();
+        self.messages.push(lines.join(" \n"));
         self.vertical_scroll_state = self
             .vertical_scroll_state
             .content_length(self.messages.len());
@@ -185,12 +185,20 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
 
 fn ui(f: &mut Frame, app: &mut App) {
     let vertical = Layout::vertical([
+        Constraint::Length(3),
         Constraint::Min(3),
         Constraint::Max(10),
         Constraint::Length(1),
     ]);
 
-    let [messages_area, input_area, help_area] = vertical.areas(f.size());
+    let [tabs_area, messages_area, input_area, help_area] = vertical.areas(f.size());
+
+    let tabs = Tabs::new(vec!["Chat", "Setting"])
+        .select(0)
+        .padding("[", "]")
+        .block(Block::bordered());
+
+    f.render_widget(tabs, tabs_area);
 
     let (msg, style) = match app.input_mode {
         InputMode::Normal => (
@@ -223,23 +231,28 @@ fn ui(f: &mut Frame, app: &mut App) {
     let max_scroll = (app.messages.len() as i32) - (messages_area.height as i32 - 3);
     app.scroll = app.scroll.min(max_scroll.max(0) as u16);
 
-    let txt = &app.messages.join("\n");
-    let markdown_txt = tui_markdown::from_str(txt);
+    let text_vec = app
+        .messages
+        .iter()
+        .map(|s| {
+            let mut text = Text::raw(s);
+            if s.starts_with("AI") {
+                text.lines
+                    .iter_mut()
+                    .for_each(|l| l.style = Style::default().fg(ratatui::style::Color::Yellow));
+            }
+            text
+        })
+        .collect::<Vec<_>>();
+
+    let mut markdown_txt = Text::default();
+    markdown_txt.extend(text_vec.into_iter().flatten());
+
     let messages = Paragraph::new(markdown_txt)
         .gray()
         .block(Block::bordered().title(format!("Messages {}:{}", messages_area.height, max_scroll)))
         .scroll((app.scroll, 0));
 
-    // let messages: Vec<ListItem> = app
-    //     .messages
-    //     .iter()
-    //     .enumerate()
-    //     .map(|(i, m)| {
-    //         let content = Line::from(Span::raw(format!("{i}: {m}")));
-    //         ListItem::new(content)
-    //     })
-    //     .collect();
-    // let messages = List::new(messages).block(Block::bordered().title("Messages"));
     f.render_widget(messages, messages_area);
 
     f.render_stateful_widget(
