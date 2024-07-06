@@ -11,10 +11,12 @@ use ratatui::{
     style::{Modifier, Style, Stylize},
     terminal::{Frame, Terminal},
     text::{Line, Text},
-    widgets::{Block, Borders, List, Paragraph, ScrollbarState, Tabs},
+    widgets::{Block, Borders, Paragraph, ScrollbarState, Tabs},
 };
 
 use tui_textarea::{Input, Key, TextArea};
+
+mod component;
 
 enum InputMode {
     Normal,

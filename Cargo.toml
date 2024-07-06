@@ -4,13 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-color-eyre = "0.6.3"
 crossterm = "0.27.0"
 env_logger = "0.11.3"
-fakeit = "1.2.0"
-itertools = "0.13.0"
 log = "0.4.22"
-pulldown-cmark = "0.11.0"
 ratatui = { version = "0.27.0", features = ["crossterm"] }
 tui-textarea = "0.4.0"
-unicode-width = "0.1.13"
