@@ -1,32 +1,3 @@
-//! # [Ratatui] User Input example
-//!
-//! The latest version of this example is available in the [examples] folder in the repository.
-//!
-//! Please note that the examples are designed to be run against the `main` branch of the Github
-//! repository. This means that you may not be able to compile with the latest release version on
-//! crates.io, or the one that you have installed locally.
-//!
-//! See the [examples readme] for more information on finding examples that match the version of the
-//! library you are using.
-//!
-//! [Ratatui]: https://github.com/ratatui-org/ratatui
-//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
-//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
-
-// A simple example demonstrating how to handle user input. This is a bit out of the scope of
-// the library as it does not provide any input handling out of the box. However, it may helps
-// some to get started.
-//
-// This is a very simple example:
-//   * An input box always focused. Every character you type is registered here.
-//   * An entered character is inserted at the cursor position.
-//   * Pressing Backspace erases the left character before the cursor position
-//   * Pressing Enter pushes the current input in the history of previous messages. **Note: ** as
-//   this is a relatively simple example unicode characters are unsupported and their use will
-// result in undefined behaviour.
-//
-// See also https://github.com/rhysd/tui-textarea and https://github.com/sayanarijit/tui-input/
-
 use std::{error::Error, io};
 
 use crossterm::{
@@ -40,7 +11,7 @@ use ratatui::{
     style::{Modifier, Style, Stylize},
     terminal::{Frame, Terminal},
     text::{Line, Text},
-    widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs},
+    widgets::{Block, Borders, List, Paragraph, ScrollbarState, Tabs},
 };
 
 use tui_textarea::{Input, Key, TextArea};
@@ -61,6 +32,8 @@ struct App {
     /// Scroll position of the message list
     scroll: u16,
 
+    mouse: (u16, u16),
+
     vertical_scroll_state: ScrollbarState,
 }
 
@@ -80,6 +53,7 @@ impl App {
             textarea,
             scroll: 0,
             vertical_scroll_state: ScrollbarState::new(0),
+            mouse: (0, 0),
         }
     }
 
@@ -111,6 +85,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -171,6 +146,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                 }
                 event::MouseEventKind::ScrollDown => {
                     app.down();
+                }
+                event::MouseEventKind::Down(_button) => {
+                    app.mouse = (event.row, event.column);
                 }
                 _ => {}
             },
@@ -245,21 +223,20 @@ fn ui(f: &mut Frame, app: &mut App) {
         })
         .collect::<Vec<_>>();
 
-    let mut markdown_txt = Text::default();
-    markdown_txt.extend(text_vec.into_iter().flatten());
+    let mut messages = Text::default();
+    messages.extend(text_vec.into_iter().flatten());
 
-    let messages = Paragraph::new(markdown_txt)
+    let messages = Paragraph::new(messages)
         .gray()
-        .block(Block::bordered().title(format!("Messages {}:{}", messages_area.height, max_scroll)))
+        .block(
+            Block::default()
+                .borders(Borders::TOP | Borders::BOTTOM)
+                .title(format!(
+                    "Messages {}:{} {:?} {:?}:{:?}",
+                    messages_area.height, max_scroll, app.mouse, input_area, messages_area
+                )),
+        )
         .scroll((app.scroll, 0));
 
     f.render_widget(messages, messages_area);
-
-    f.render_stateful_widget(
-        Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(Some("↑"))
-            .end_symbol(Some("↓")),
-        messages_area,
-        &mut app.vertical_scroll_state,
-    );
 }
