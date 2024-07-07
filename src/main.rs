@@ -37,6 +37,10 @@ struct Args {
     /// full prompt chat
     #[arg(long)]
     no_full_chat: bool,
+
+    /// full prompt chat
+    #[arg(long)]
+    debug_ui: bool,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -93,19 +97,34 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let (user_tx, user_rx) = crossbeam::channel::unbounded();
     let (token_tx, token_rx) = crossbeam::channel::unbounded();
-    let (wait_tx, wait_rx) = crossbeam::channel::bounded(1);
 
     let token_tx_ = token_tx.clone();
 
     let app = ChatComponent::new(Default::default(), user_tx, token_rx);
 
-    let llama_result = std::thread::spawn(move || {
-        let mut lua_llama = init_llama(cli, user_rx, token_tx)?;
-        wait_tx.send(())?;
-        lua_llama.chat()
-    });
+    let llama_result;
 
-    wait_rx.recv()?;
+    if cli.debug_ui {
+        llama_result = std::thread::spawn(move || {
+            while let Ok(input) = user_rx.recv() {
+                let _ = token_tx.send(event_message::InputMessage::Token(lua_llama::Token::Start));
+                let _ = token_tx.send(event_message::InputMessage::Token(lua_llama::Token::End(
+                    input,
+                )));
+            }
+            Ok(())
+        });
+    } else {
+        let (wait_tx, wait_rx) = crossbeam::channel::bounded(1);
+
+        llama_result = std::thread::spawn(move || {
+            let mut lua_llama = init_llama(cli, user_rx, token_tx)?;
+            wait_tx.send(())?;
+            lua_llama.chat()
+        });
+
+        wait_rx.recv()?;
+    }
 
     std::thread::spawn(move || {
         event_message::listen_input(token_tx_);
