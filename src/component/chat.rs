@@ -1,9 +1,9 @@
 use std::collections::LinkedList;
 
-use lua_llama::{
-    llm::{Content, Role},
-    script_llm::Token,
-};
+use lua_llama::llm::{Content, Role};
+use lua_llama::Token;
+use ratatui::backend::Backend;
+use ratatui::Terminal;
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     text::{Line, Text},
@@ -86,7 +86,7 @@ impl MessagesComponent {
                 Err(err) => {
                     self.contents.push_back(Content {
                         role: Role::Tool,
-                        message: format!("Error: {}", err),
+                        message: format!("Error: {}", err.to_string()),
                     });
                 }
             },
@@ -170,10 +170,13 @@ impl ChatComponent {
         self.messages.lock_on_bottom = true;
     }
 
-    pub fn handler_input(&mut self) -> bool {
+    pub fn handler_input<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> bool {
         let input = self.token_rx.recv().unwrap();
         self.event = format!("{:?}", input);
         match input {
+            InputMessage::Input(input) if input.key == Key::F(5) => {
+                let _ = terminal.clear();
+            }
             InputMessage::Input(input) if (input.key == Key::Char('s') && input.ctrl) => {
                 self.submit_message();
             }

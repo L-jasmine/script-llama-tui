@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, io, num::NonZeroU32, sync::Arc};
+use std::{collections::HashMap, error::Error, io, num::NonZeroU32};
 
 use clap::Parser;
 use component::chat::ChatComponent;
@@ -7,14 +7,14 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use event_message::Hook;
-use lua_llama::{llm, script_llm::LuaLlama};
+use lua_llama::{llm, HookLlama};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Layout},
     terminal::{Frame, Terminal},
     widgets::{Block, Paragraph, Tabs},
 };
+use tool_env::LuaHook;
 
 mod component;
 mod event_message;
@@ -51,7 +51,7 @@ fn init_llama(
     cli: Args,
     user_rx: crossbeam::channel::Receiver<String>,
     token_tx: crossbeam::channel::Sender<event_message::InputMessage>,
-) -> anyhow::Result<LuaLlama<Hook>> {
+) -> anyhow::Result<HookLlama<LuaHook>> {
     let prompt = std::fs::read_to_string(&cli.prompt_path)?;
     let mut prompt: HashMap<String, Vec<lua_llama::llm::Content>> = toml::from_str(&prompt)?;
     let sys_prompt = prompt.remove("content").unwrap();
@@ -70,22 +70,20 @@ fn init_llama(
 
     let llm = llm::LlmModel::new(cli.model_path, model_params, template)?;
     let ctx = if !cli.no_full_chat {
-        let ctx_params = llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(1024 * 2));
+        let ctx_params = llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(1024));
         llm::LlamaModelFullPromptContext::new(llm, ctx_params, Some(sys_prompt))
             .unwrap()
             .into()
     } else {
-        let ctx_params = llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(1024 * 2));
+        let ctx_params = llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(1024));
         llm::LlamaModelContext::new(llm, ctx_params, Some(sys_prompt))
             .unwrap()
             .into()
     };
 
-    let lua_llama = LuaLlama {
-        llm: ctx,
-        lua,
-        hook: event_message::Hook::new(user_rx, token_tx).into(),
-    };
+    let hook = LuaHook::new(user_rx, token_tx, lua);
+
+    let lua_llama = HookLlama::new(ctx, hook);
 
     Ok(lua_llama)
 }
@@ -148,7 +146,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: ChatComponent) -> io::Result<()> {
     loop {
         terminal.draw(|f| ui(f, &mut app))?;
-        if !app.handler_input() {
+        if !app.handler_input(terminal) {
             return Ok(());
         }
     }
