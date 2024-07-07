@@ -3,6 +3,7 @@ use std::collections::LinkedList;
 use lua_llama::llm::{Content, Role};
 use lua_llama::Token;
 use ratatui::backend::Backend;
+use ratatui::style::{Color, Style};
 use ratatui::Terminal;
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -35,8 +36,18 @@ impl MessagesComponent {
     {
         let mut text = Text::default();
         for content in &self.contents {
-            text.extend([Line::raw(content.role.to_string().to_uppercase())]);
-            text.extend(Text::raw(&content.message));
+            let style = match content.role {
+                Role::Assistant => Style::new().bg(Color::Cyan),
+                Role::User => Style::new().bg(Color::Yellow),
+                Role::Tool => Style::new().bg(Color::Gray),
+                _ => Style::new(),
+            };
+            text.extend([Line::styled(
+                format!("{}:", content.role.to_string().to_uppercase()),
+                style,
+            )]);
+            text.extend(Text::raw(&content.message).style(style));
+            text.extend([Line::default().style(style)]);
         }
 
         let line_n = text.lines.len();
@@ -51,6 +62,8 @@ impl MessagesComponent {
             if self.lock_on_bottom {
                 self.cursor.0 = max_cursor as u16;
             }
+        } else {
+            self.cursor.0 = 0;
         }
 
         let paragraph = Paragraph::new(text)
