@@ -108,6 +108,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         llama_result = std::thread::spawn(move || {
             while let Ok(input) = user_rx.recv() {
                 let _ = token_tx.send(event_message::InputMessage::Token(lua_llama::Token::Start));
+                std::thread::sleep(std::time::Duration::from_secs(1));
                 let _ = token_tx.send(event_message::InputMessage::Token(lua_llama::Token::End(
                     input,
                 )));

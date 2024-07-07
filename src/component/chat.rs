@@ -3,7 +3,7 @@ use std::collections::LinkedList;
 use lua_llama::llm::{Content, Role};
 use lua_llama::Token;
 use ratatui::backend::Backend;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Style, Stylize};
 use ratatui::Terminal;
 use ratatui::{
     layout::{Constraint, Layout, Rect},
@@ -19,6 +19,7 @@ pub struct MessagesComponent {
     contents: LinkedList<Content>,
     cursor: (u16, u16),
     lock_on_bottom: bool,
+    pub(super) wait_token: bool,
 }
 
 impl MessagesComponent {
@@ -27,6 +28,7 @@ impl MessagesComponent {
             contents,
             cursor: (0, 0),
             lock_on_bottom: true,
+            wait_token: false,
         }
     }
 
@@ -74,16 +76,20 @@ impl MessagesComponent {
 
     pub fn handler_input(&mut self, input: InputMessage) {
         match input {
-            InputMessage::Token(Token::Start) => self.contents.push_back(Content {
-                role: Role::Assistant,
-                message: String::with_capacity(64),
-            }),
+            InputMessage::Token(Token::Start) => {
+                self.wait_token = true;
+                self.contents.push_back(Content {
+                    role: Role::Assistant,
+                    message: String::with_capacity(64),
+                })
+            }
             InputMessage::Token(Token::Chunk(chunk)) => {
                 if let Some(content) = self.contents.back_mut() {
                     content.message.push_str(&chunk);
                 }
             }
             InputMessage::Token(Token::End(s)) => {
+                self.wait_token = false;
                 if let Some(content) = self.contents.back_mut() {
                     content.message = s;
                 }
@@ -159,13 +165,18 @@ impl ChatComponent {
         let [messages_area, input_area] = vertical.areas(area);
 
         self.messages.render(frame, messages_area);
+        if self.messages.wait_token {
+            self.input
+                .set_block(Block::bordered().title("Input").yellow())
+        } else {
+            self.input
+                .set_block(Block::bordered().title("Input").gray())
+        }
         frame.render_widget(self.input.widget(), input_area);
     }
 
     fn new_textarea() -> TextArea<'static> {
-        let mut textarea = TextArea::default();
-        textarea.set_block(Block::bordered().title("Input"));
-        textarea
+        TextArea::default()
     }
 
     fn submit_message(&mut self) {
@@ -191,7 +202,9 @@ impl ChatComponent {
                 let _ = terminal.clear();
             }
             InputMessage::Input(input) if (input.key == Key::Char('s') && input.ctrl) => {
-                self.submit_message();
+                if !self.messages.wait_token {
+                    self.submit_message();
+                }
             }
             InputMessage::Input(input) if input.key == Key::Esc => {
                 self.exit_n += 1;
