@@ -51,10 +51,9 @@ fn init_llama(
     cli: Args,
     user_rx: crossbeam::channel::Receiver<String>,
     token_tx: crossbeam::channel::Sender<event_message::InputMessage>,
-) -> LuaLlama<Hook> {
-    let prompt = std::fs::read_to_string(&cli.prompt_path).unwrap();
-    let mut prompt: HashMap<String, Vec<lua_llama::llm::Content>> =
-        toml::from_str(&prompt).unwrap();
+) -> anyhow::Result<LuaLlama<Hook>> {
+    let prompt = std::fs::read_to_string(&cli.prompt_path)?;
+    let mut prompt: HashMap<String, Vec<lua_llama::llm::Content>> = toml::from_str(&prompt)?;
     let sys_prompt = prompt.remove("content").unwrap();
 
     let model_params: lua_llama::llm::LlamaModelParams =
@@ -67,8 +66,9 @@ fn init_llama(
         ModelType::Qwen => llm::qwen::qwen_prompt_template(),
     };
 
-    let llm = llm::LlmModel::new(cli.model_path, model_params, template).unwrap();
-    let lua = Arc::new(tool_env::new_lua().unwrap());
+    let lua = tool_env::new_lua()?;
+
+    let llm = llm::LlmModel::new(cli.model_path, model_params, template)?;
     let ctx = if !cli.no_full_chat {
         let ctx_params = llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(1024 * 2));
         llm::LlamaModelFullPromptContext::new(llm, ctx_params, Some(sys_prompt))
@@ -87,7 +87,7 @@ fn init_llama(
         hook: event_message::Hook::new(user_rx, token_tx).into(),
     };
 
-    lua_llama
+    Ok(lua_llama)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let app = ChatComponent::new(Default::default(), user_tx, token_rx);
 
     let llama_result = std::thread::spawn(move || {
-        let mut lua_llama = init_llama(cli, user_rx, token_tx);
+        let mut lua_llama = init_llama(cli, user_rx, token_tx)?;
         wait_tx.send(())?;
         lua_llama.chat()
     });
