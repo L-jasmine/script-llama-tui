@@ -11,3 +11,9 @@ ratatui = { version = "0.27.0", features = ["crossterm"] }
 tui-textarea = "0.4.0"
 lua_llama = { path = "../lua_llama" }
 crossbeam = "0.8.4"
+anyhow = "1.0.86"
+mlua = { version = "0.9.9", features = ["lua54", "vendored"] }
+
+serde_json = "1.0.120"
+clap = { version = "4.5.7", features = ["derive"] }
+toml = "0.8.14"

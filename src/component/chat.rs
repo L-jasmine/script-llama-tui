@@ -76,6 +76,21 @@ impl MessagesComponent {
                 }
             }
 
+            InputMessage::ScriptResult(s) => match s {
+                Ok(s) => {
+                    self.contents.push_back(Content {
+                        role: Role::Tool,
+                        message: s,
+                    });
+                }
+                Err(err) => {
+                    self.contents.push_back(Content {
+                        role: Role::Tool,
+                        message: format!("Error: {}", err),
+                    });
+                }
+            },
+
             InputMessage::Input(input) => match input.key {
                 Key::MouseScrollDown => {
                     if input.ctrl {
@@ -99,6 +114,8 @@ impl MessagesComponent {
 }
 
 pub struct ChatComponent {
+    user_tx: crossbeam::channel::Sender<String>,
+    token_rx: crossbeam::channel::Receiver<InputMessage>,
     messages: MessagesComponent,
     input: TextArea<'static>,
     exit_n: u8,
@@ -106,12 +123,18 @@ pub struct ChatComponent {
 }
 
 impl ChatComponent {
-    pub fn new(contents: LinkedList<Content>) -> Self {
+    pub fn new(
+        contents: LinkedList<Content>,
+        user_tx: crossbeam::channel::Sender<String>,
+        token_rx: crossbeam::channel::Receiver<InputMessage>,
+    ) -> Self {
         Self {
             messages: MessagesComponent::new(contents),
             input: Self::new_textarea(),
             exit_n: 0,
             event: String::new(),
+            user_tx,
+            token_rx,
         }
     }
 
@@ -136,14 +159,19 @@ impl ChatComponent {
         let mut new_textarea = Self::new_textarea();
         std::mem::swap(&mut self.input, &mut new_textarea);
         let lines = new_textarea.into_lines();
+        let message = lines.join("\n");
+
+        self.user_tx.send(message.clone()).unwrap();
+
         self.messages.contents.push_back(Content {
             role: Role::User,
-            message: lines.join("\n"),
+            message,
         });
         self.messages.lock_on_bottom = true;
     }
 
-    pub fn handler_input(&mut self, input: InputMessage) -> bool {
+    pub fn handler_input(&mut self) -> bool {
+        let input = self.token_rx.recv().unwrap();
         self.event = format!("{:?}", input);
         match input {
             InputMessage::Input(input) if (input.key == Key::Char('s') && input.ctrl) => {

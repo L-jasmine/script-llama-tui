@@ -1,11 +1,14 @@
-use std::{error::Error, io};
+use std::{collections::HashMap, error::Error, io, num::NonZeroU32, sync::Arc};
 
+use clap::Parser;
 use component::chat::ChatComponent;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use event_message::Hook;
+use lua_llama::{llm, script_llm::LuaLlama};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Layout},
@@ -17,8 +20,97 @@ use tui_textarea::Input;
 
 mod component;
 mod event_message;
+mod tool_env;
+
+#[derive(Debug, clap::Parser)]
+struct Args {
+    /// Path to the model
+    #[arg(short, long)]
+    model_path: String,
+
+    /// path to the prompt
+    #[arg(short, long)]
+    prompt_path: String,
+
+    /// Type of the model
+    #[arg(short('t'), long, value_enum)]
+    model_type: ModelType,
+
+    /// full prompt chat
+    #[arg(long)]
+    no_full_chat: bool,
+}
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum ModelType {
+    Llama3,
+    Hermes2ProLlama3,
+    Gemma2,
+    Qwen,
+}
+
+fn init_llama(
+    cli: Args,
+    user_rx: crossbeam::channel::Receiver<String>,
+    token_tx: crossbeam::channel::Sender<event_message::InputMessage>,
+) -> LuaLlama<Hook> {
+    let prompt = std::fs::read_to_string(&cli.prompt_path).unwrap();
+    let mut prompt: HashMap<String, Vec<lua_llama::llm::Content>> =
+        toml::from_str(&prompt).unwrap();
+    let sys_prompt = prompt.remove("content").unwrap();
+
+    let model_params: lua_llama::llm::LlamaModelParams =
+        lua_llama::llm::LlamaModelParams::default().with_n_gpu_layers(512);
+
+    let template = match cli.model_type {
+        ModelType::Llama3 => llm::llama3::llama3_prompt_template(),
+        ModelType::Hermes2ProLlama3 => llm::llama3::hermes_2_pro_llama3_prompt_template(),
+        ModelType::Gemma2 => llm::gemma::gemma2_prompt_template(),
+        ModelType::Qwen => llm::qwen::qwen_prompt_template(),
+    };
+
+    let llm = llm::LlmModel::new(cli.model_path, model_params, template).unwrap();
+    let lua = Arc::new(tool_env::new_lua().unwrap());
+    let ctx = if !cli.no_full_chat {
+        let ctx_params = llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(1024 * 2));
+        llm::LlamaModelFullPromptContext::new(llm, ctx_params, Some(sys_prompt))
+            .unwrap()
+            .into()
+    } else {
+        let ctx_params = llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(1024 * 2));
+        llm::LlamaModelContext::new(llm, ctx_params, Some(sys_prompt))
+            .unwrap()
+            .into()
+    };
+
+    let lua_llama = LuaLlama {
+        llm: ctx,
+        lua,
+        hook: event_message::Hook::new(user_rx, token_tx).into(),
+    };
+
+    lua_llama
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let cli = Args::parse();
+
+    let (user_tx, user_rx) = crossbeam::channel::unbounded();
+    let (token_tx, token_rx) = crossbeam::channel::unbounded();
+
+    let token_tx_ = token_tx.clone();
+
+    let app = ChatComponent::new(Default::default(), user_tx, token_rx);
+
+    std::thread::spawn(move || {
+        event_message::listen_input(token_tx_);
+    });
+
+    std::thread::spawn(move || {
+        let mut lua_llama = init_llama(cli, user_rx, token_tx);
+        lua_llama.chat().unwrap();
+    });
+
     // setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -28,7 +120,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     // create app and run it
-    let app = ChatComponent::new(Default::default());
     let res = run_app(&mut terminal, app);
 
     // restore terminal
@@ -50,8 +141,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: ChatComponent) -> io::Result<()> {
     loop {
         terminal.draw(|f| ui(f, &mut app))?;
-        let input: Input = event::read()?.into();
-        if !app.handler_input(event_message::InputMessage::Input(input)) {
+        if !app.handler_input() {
             return Ok(());
         }
     }
