@@ -1,6 +1,5 @@
 use crossterm::event;
-use lua_llama::script_llm::{ChatHook, LlamaCtx, LuaLlama, Token};
-use mlua::Lua;
+use lua_llama::script_llm::{ChatHook, Token};
 use tui_textarea::Input;
 
 #[derive(Debug, Clone)]

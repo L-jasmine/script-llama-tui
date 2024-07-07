@@ -3,7 +3,7 @@ use std::{collections::HashMap, error::Error, io, num::NonZeroU32, sync::Arc};
 use clap::Parser;
 use component::chat::ChatComponent;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture},
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -15,8 +15,6 @@ use ratatui::{
     terminal::{Frame, Terminal},
     widgets::{Block, Paragraph, Tabs},
 };
-
-use tui_textarea::Input;
 
 mod component;
 mod event_message;
@@ -97,18 +95,22 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let (user_tx, user_rx) = crossbeam::channel::unbounded();
     let (token_tx, token_rx) = crossbeam::channel::unbounded();
+    let (wait_tx, wait_rx) = crossbeam::channel::bounded(1);
 
     let token_tx_ = token_tx.clone();
 
     let app = ChatComponent::new(Default::default(), user_tx, token_rx);
 
-    std::thread::spawn(move || {
-        event_message::listen_input(token_tx_);
+    let llama_result = std::thread::spawn(move || {
+        let mut lua_llama = init_llama(cli, user_rx, token_tx);
+        wait_tx.send(())?;
+        lua_llama.chat()
     });
 
+    wait_rx.recv()?;
+
     std::thread::spawn(move || {
-        let mut lua_llama = init_llama(cli, user_rx, token_tx);
-        lua_llama.chat().unwrap();
+        event_message::listen_input(token_tx_);
     });
 
     // setup terminal
@@ -130,6 +132,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         DisableMouseCapture
     )?;
     terminal.show_cursor()?;
+
+    let llama_result = llama_result.join().unwrap();
+    if let Err(err) = llama_result {
+        println!("llama_result err:{err}")
+    }
 
     if let Err(err) = res {
         println!("{err:?}");
