@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, io, num::NonZeroU32};
+use std::{error::Error, io};
 
 use clap::Parser;
 use component::chat::ChatComponent;
@@ -7,14 +7,12 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use lua_llama::{llm, HookLlama};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Layout},
     terminal::{Frame, Terminal},
     widgets::{Block, Paragraph, Tabs},
 };
-use tool_env::LuaHook;
 
 mod component;
 mod event_message;
@@ -41,6 +39,9 @@ struct Args {
     /// full prompt chat
     #[arg(long)]
     debug_ui: bool,
+
+    #[arg(short, long, value_enum)]
+    engine: Engine,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -51,45 +52,10 @@ enum ModelType {
     Qwen,
 }
 
-fn init_llama(
-    cli: Args,
-    user_rx: crossbeam::channel::Receiver<String>,
-    token_tx: crossbeam::channel::Sender<event_message::InputMessage>,
-) -> anyhow::Result<HookLlama<LuaHook>> {
-    let prompt = std::fs::read_to_string(&cli.prompt_path)?;
-    let mut prompt: HashMap<String, Vec<lua_llama::llm::Content>> = toml::from_str(&prompt)?;
-    let sys_prompt = prompt.remove("content").unwrap();
-
-    let model_params: lua_llama::llm::LlamaModelParams =
-        lua_llama::llm::LlamaModelParams::default().with_n_gpu_layers(512);
-
-    let template = match cli.model_type {
-        ModelType::Llama3 => llm::llama3::llama3_prompt_template(),
-        ModelType::Hermes2ProLlama3 => llm::llama3::hermes_2_pro_llama3_prompt_template(),
-        ModelType::Gemma2 => llm::gemma::gemma2_prompt_template(),
-        ModelType::Qwen => llm::qwen::qwen_prompt_template(),
-    };
-
-    let lua = tool_env::new_lua()?;
-
-    let llm = llm::LlmModel::new(cli.model_path, model_params, template)?;
-    let ctx = if !cli.no_full_chat {
-        let ctx_params = llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(1024));
-        llm::LlamaModelFullPromptContext::new(llm, ctx_params, Some(sys_prompt))
-            .unwrap()
-            .into()
-    } else {
-        let ctx_params = llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(1024));
-        llm::LlamaModelContext::new(llm, ctx_params, Some(sys_prompt))
-            .unwrap()
-            .into()
-    };
-
-    let hook = LuaHook::new(user_rx, token_tx, lua);
-
-    let lua_llama = HookLlama::new(ctx, hook);
-
-    Ok(lua_llama)
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum Engine {
+    Lua,
+    Rhai,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -118,10 +84,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         let (wait_tx, wait_rx) = crossbeam::channel::bounded(1);
 
-        llama_result = std::thread::spawn(move || {
-            let mut lua_llama = init_llama(cli, user_rx, token_tx)?;
-            wait_tx.send(())?;
-            lua_llama.chat()
+        llama_result = std::thread::spawn(move || match cli.engine {
+            Engine::Lua => {
+                let mut lua_llama = tool_env::lua::init_llama(cli, user_rx, token_tx)?;
+                wait_tx.send(())?;
+                lua_llama.chat()
+            }
+            Engine::Rhai => {
+                let mut rhai_llama = tool_env::rhai::init_llama(cli, user_rx, token_tx)?;
+                wait_tx.send(())?;
+                rhai_llama.chat()
+            }
         });
 
         wait_rx.recv()?;

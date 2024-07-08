@@ -5,7 +5,7 @@ use tui_textarea::Input;
 #[derive(Debug, Clone)]
 pub enum InputMessage {
     Token(Token),
-    ScriptResult(mlua::Result<String>),
+    ScriptResult(Result<String, String>),
     Input(Input),
 }
 
