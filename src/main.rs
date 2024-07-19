@@ -1,16 +1,14 @@
 use std::{collections::HashMap, error::Error, num::NonZeroU32};
 
-use chat::im_channel::{self, Message, Role};
+use chat::im_channel;
 use clap::Parser;
 use llm::local_llm;
-use lua_llama::{
-    llm::{self as llama},
-    Token,
-};
+use lua_llama::llm::{self as llama};
 use tool_env::ScriptExecutor;
 
 mod chat;
 mod component;
+mod debug_tool;
 mod llm;
 mod tool_env;
 
@@ -35,6 +33,9 @@ struct Args {
     /// full prompt chat
     #[arg(long)]
     debug_ui: bool,
+
+    #[arg(long)]
+    debug_llm: bool,
 
     #[arg(short, long, value_enum)]
     engine: Engine,
@@ -82,9 +83,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut chan = im_channel::ImChannel::new(chan_close_rx);
 
-    let (tx, rx) = chan.register(component::App::filter);
-    let app = component::App::new(rx, tx);
-
     let (tx, rx) = chan.register(tool_env::filter);
     match cli.engine {
         Engine::Lua => std::thread::spawn(move || {
@@ -102,27 +100,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (tx, rx) = chan.register(local_llm::LocalLlama::filter);
 
     if cli.debug_ui {
-        llama_result = std::thread::spawn(move || {
-            while let Ok(input) = rx.recv() {
-                match input {
-                    Message {
-                        role: Role::User,
-                        contont: Token::End(message),
-                    } => {
-                        let _ = tx.send(Message {
-                            role: Role::Assistant,
-                            contont: Token::Start,
-                        });
-                        let _ = tx.send(Message {
-                            role: Role::Assistant,
-                            contont: Token::End(message),
-                        });
-                    }
-                    _ => {}
-                }
-            }
-            Ok(())
-        });
+        llama_result = debug_tool::echo_assistant(tx, rx);
     } else {
         let prompt = std::fs::read_to_string(&cli.prompt_path)?;
         let mut prompt: HashMap<String, Vec<lua_llama::llm::Content>> = toml::from_str(&prompt)?;
@@ -164,9 +142,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         wait_rx.recv()?;
     }
 
-    std::thread::spawn(move || chan.run_loop());
+    let res;
+    if cli.debug_llm {
+        let (tx, rx) = chan.register(debug_tool::TerminalApp::filter);
+        let app = debug_tool::TerminalApp { tx, rx };
 
-    let res = app.run_loop();
+        std::thread::spawn(move || chan.run_loop());
+
+        res = app.run_loop();
+    } else {
+        let (tx, rx) = chan.register(component::App::filter);
+        let app = component::App::new(rx, tx);
+
+        std::thread::spawn(move || chan.run_loop());
+
+        res = app.run_loop();
+    }
 
     let _ = chan_close_tx.send(());
 
