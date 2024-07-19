@@ -7,10 +7,6 @@ pub struct MessageConsumer {
     pub tx: MessageTx,
 }
 
-pub trait ChannelMember {
-    fn consumer(&self) -> MessageConsumer;
-}
-
 #[derive(Clone, Debug)]
 pub struct Message {
     pub role: Role,
@@ -36,10 +32,6 @@ impl ImChannel {
             consumers: Vec::new(),
             close_rx,
         }
-    }
-
-    pub fn register_consumer(&mut self, member: MessageConsumer) {
-        self.consumers.push(member);
     }
 
     pub fn register(&mut self, filter: fn(message: &Message) -> Option<Message>) -> MessageRx {

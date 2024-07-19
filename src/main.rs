@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error, num::NonZeroU32};
 
-use chat::im_channel::{self, Message, MessageConsumer, Role};
+use chat::im_channel::{self, Message, Role};
 use clap::Parser;
 use llm::local_llm;
 use lua_llama::{
@@ -11,7 +11,6 @@ use tool_env::ScriptExecutor;
 
 mod chat;
 mod component;
-mod event_message;
 mod llm;
 mod tool_env;
 
