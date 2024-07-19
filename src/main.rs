@@ -82,48 +82,38 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut chan = im_channel::ImChannel::new(chan_close_rx);
 
-    let rx = chan.register(component::App::filter);
-    let app = component::App::new(rx, chan.new_message_tx());
+    let (tx, rx) = chan.register(component::App::filter);
+    let app = component::App::new(rx, tx);
 
-    let rx = chan.register(tool_env::filter);
-    let chan_tx = chan.new_message_tx();
+    let (tx, rx) = chan.register(tool_env::filter);
     match cli.engine {
         Engine::Lua => std::thread::spawn(move || {
-            let script_executor =
-                ScriptExecutor::new(tool_env::lua::new_lua().unwrap(), rx, chan_tx);
+            let script_executor = ScriptExecutor::new(tool_env::lua::new_lua().unwrap(), rx, tx);
             script_executor.run_loop()
         }),
         Engine::Rhai => std::thread::spawn(move || {
-            let script_executor = ScriptExecutor::new(tool_env::rhai::new_rhai(), rx, chan_tx);
+            let script_executor = ScriptExecutor::new(tool_env::rhai::new_rhai(), rx, tx);
             script_executor.run_loop()
         }),
     };
 
     let llama_result;
 
-    let rx = chan.register(local_llm::LocalLlama::filter);
-    let chan_tx = chan.new_message_tx();
+    let (tx, rx) = chan.register(local_llm::LocalLlama::filter);
 
     if cli.debug_ui {
         llama_result = std::thread::spawn(move || {
-            // while let Ok((_, input)) = rx.recv() {
-            //     let _ = token_tx.send(event_message::InputMessage::Token(lua_llama::Token::Start));
-            //     std::thread::sleep(std::time::Duration::from_secs(1));
-            //     let _ = token_tx.send(event_message::InputMessage::Token(lua_llama::Token::End(
-            //         input,
-            //     )));
-            // }
             while let Ok(input) = rx.recv() {
                 match input {
                     Message {
                         role: Role::User,
                         contont: Token::End(message),
                     } => {
-                        let _ = chan_tx.send(Message {
+                        let _ = tx.send(Message {
                             role: Role::Assistant,
                             contont: Token::Start,
                         });
-                        let _ = chan_tx.send(Message {
+                        let _ = tx.send(Message {
                             role: Role::Assistant,
                             contont: Token::End(message),
                         });
@@ -165,7 +155,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .into()
             };
 
-            let mut local_llama = llm::local_llm::LocalLlama::new(ctx, rx, chan_tx);
+            let mut local_llama = llm::local_llm::LocalLlama::new(ctx, rx, tx);
             wait_tx.send(()).unwrap();
 
             local_llama.run_loop()

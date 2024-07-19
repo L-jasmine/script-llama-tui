@@ -34,14 +34,13 @@ impl ImChannel {
         }
     }
 
-    pub fn register(&mut self, filter: fn(message: &Message) -> Option<Message>) -> MessageRx {
+    pub fn register(
+        &mut self,
+        filter: fn(message: &Message) -> Option<Message>,
+    ) -> (MessageTx, MessageRx) {
         let (tx, rx) = crossbeam::channel::unbounded();
         self.consumers.push(MessageConsumer { filter, tx });
-        rx
-    }
-
-    pub fn new_message_tx(&self) -> MessageTx {
-        self.tx.clone()
+        (self.tx.clone(), rx)
     }
 
     pub fn run_loop(&mut self) {
