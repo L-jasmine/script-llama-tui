@@ -60,7 +60,7 @@ pub struct RhaiHook {
     rhai: rhai::Engine,
     code: Option<String>,
 
-    user_rx: crossbeam::channel::Receiver<String>,
+    user_rx: crossbeam::channel::Receiver<(Role, String)>,
     token_tx: crossbeam::channel::Sender<InputMessage>,
 }
 
@@ -99,11 +99,8 @@ impl IOHook for RhaiHook {
         };
 
         let input = self.user_rx.recv().ok();
-        if let Some(input) = input {
-            let c = Content {
-                role: Role::User,
-                message: input,
-            };
+        if let Some((role, message)) = input {
+            let c = Content { role, message };
             Ok(Some(c))
         } else {
             Ok(None)
@@ -141,7 +138,7 @@ impl IOHook for RhaiHook {
 
 impl RhaiHook {
     pub fn new(
-        user_rx: crossbeam::channel::Receiver<String>,
+        user_rx: crossbeam::channel::Receiver<(Role, String)>,
         token_tx: crossbeam::channel::Sender<InputMessage>,
         rhai: Engine,
     ) -> Self {
@@ -157,7 +154,7 @@ impl RhaiHook {
 pub fn init_llama(
     cli: crate::Args,
     prompts: Vec<llm::Content>,
-    user_rx: crossbeam::channel::Receiver<String>,
+    user_rx: crossbeam::channel::Receiver<(Role, String)>,
     token_tx: crossbeam::channel::Sender<event_message::InputMessage>,
 ) -> anyhow::Result<HookLlama<RhaiHook>> {
     let model_params: lua_llama::llm::LlamaModelParams =

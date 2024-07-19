@@ -133,7 +133,7 @@ impl MessagesComponent {
 }
 
 pub struct ChatComponent {
-    user_tx: crossbeam::channel::Sender<String>,
+    user_tx: crossbeam::channel::Sender<(Role, String)>,
     token_rx: crossbeam::channel::Receiver<InputMessage>,
     messages: MessagesComponent,
     input: TextArea<'static>,
@@ -144,7 +144,7 @@ pub struct ChatComponent {
 impl ChatComponent {
     pub fn new(
         contents: LinkedList<Content>,
-        user_tx: crossbeam::channel::Sender<String>,
+        user_tx: crossbeam::channel::Sender<(Role, String)>,
         token_rx: crossbeam::channel::Receiver<InputMessage>,
     ) -> Self {
         Self {
@@ -185,7 +185,7 @@ impl ChatComponent {
         let lines = new_textarea.into_lines();
         let message = lines.join("\n");
 
-        self.user_tx.send(message.clone()).unwrap();
+        self.user_tx.send((Role::User, message.clone())).unwrap();
 
         self.messages.contents.push_back(Content {
             role: Role::User,
