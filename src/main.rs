@@ -1,4 +1,4 @@
-use std::{error::Error, io};
+use std::{collections::HashMap, error::Error, io};
 
 use clap::Parser;
 use component::chat::ChatComponent;
@@ -92,16 +92,20 @@ fn main() -> Result<(), Box<dyn Error>> {
             Ok(())
         });
     } else {
+        let prompt = std::fs::read_to_string(&cli.prompt_path)?;
+        let mut prompt: HashMap<String, Vec<lua_llama::llm::Content>> = toml::from_str(&prompt)?;
+        let prompts = prompt.remove("content").unwrap();
+
         let (wait_tx, wait_rx) = crossbeam::channel::bounded(1);
 
         llama_result = std::thread::spawn(move || match cli.engine {
             Engine::Lua => {
-                let mut lua_llama = tool_env::lua::init_llama(cli, user_rx, token_tx)?;
+                let mut lua_llama = tool_env::lua::init_llama(cli, prompts, user_rx, token_tx)?;
                 wait_tx.send(())?;
                 lua_llama.chat()
             }
             Engine::Rhai => {
-                let mut rhai_llama = tool_env::rhai::init_llama(cli, user_rx, token_tx)?;
+                let mut rhai_llama = tool_env::rhai::init_llama(cli, prompts, user_rx, token_tx)?;
                 wait_tx.send(())?;
                 rhai_llama.chat()
             }

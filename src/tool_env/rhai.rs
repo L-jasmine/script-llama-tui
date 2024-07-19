@@ -1,4 +1,4 @@
-use std::{collections::HashMap, num::NonZeroU32};
+use std::num::NonZeroU32;
 
 use lua_llama::{
     llm::{self, Content, Role},
@@ -78,15 +78,15 @@ impl IOHook for RhaiHook {
                     s
                 }
                 Err(err) => {
+                    let err_s = err.to_string();
                     let s = serde_json::json!(
                         {
                             "status":"error",
-                            "error":err.to_string()
+                            "error":err_s
                         }
                     );
 
-                    self.token_tx
-                        .send(InputMessage::ScriptResult(Err(err.to_string())))?;
+                    self.token_tx.send(InputMessage::ScriptResult(Err(err_s)))?;
                     s
                 }
             };
@@ -156,13 +156,10 @@ impl RhaiHook {
 
 pub fn init_llama(
     cli: crate::Args,
+    prompts: Vec<llm::Content>,
     user_rx: crossbeam::channel::Receiver<String>,
     token_tx: crossbeam::channel::Sender<event_message::InputMessage>,
 ) -> anyhow::Result<HookLlama<RhaiHook>> {
-    let prompt = std::fs::read_to_string(&cli.prompt_path)?;
-    let mut prompt: HashMap<String, Vec<lua_llama::llm::Content>> = toml::from_str(&prompt)?;
-    let sys_prompt = prompt.remove("content").unwrap();
-
     let model_params: lua_llama::llm::LlamaModelParams =
         lua_llama::llm::LlamaModelParams::default().with_n_gpu_layers(cli.n_gpu_layers);
 
@@ -184,11 +181,11 @@ pub fn init_llama(
     }
 
     let ctx = if !cli.no_full_chat {
-        llm::LlamaModelFullPromptContext::new(llm, ctx_params, Some(sys_prompt))
+        llm::LlamaModelFullPromptContext::new(llm, ctx_params, Some(prompts))
             .unwrap()
             .into()
     } else {
-        llm::LlamaModelContext::new(llm, ctx_params, Some(sys_prompt))
+        llm::LlamaModelContext::new(llm, ctx_params, Some(prompts))
             .unwrap()
             .into()
     };

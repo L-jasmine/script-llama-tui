@@ -1,4 +1,4 @@
-use std::{collections::HashMap, num::NonZeroU32};
+use std::num::NonZeroU32;
 
 use lua_llama::{
     llm::{self, Content, Role},
@@ -73,36 +73,24 @@ impl IOHook for LuaHook {
                 .lua
                 .load(code)
                 .eval::<mlua::Value>()
-                .map(|v| serde_json::to_string(&v));
+                .map_err(|e| e.to_string())
+                .and_then(|v| serde_json::to_string(&v).map_err(|e| e.to_string()));
 
             let lua_result = match s {
-                Ok(Ok(s)) => {
+                Ok(s) => {
                     self.token_tx
                         .send(InputMessage::ScriptResult(Ok(s.clone())))?;
-                    s
-                }
-                Ok(Err(err)) => {
-                    let s = serde_json::json!(
-                        {
-                            "status":"error",
-                            "error":err.to_string()
-                        }
-                    )
-                    .to_string();
-                    self.token_tx
-                        .send(InputMessage::ScriptResult(Err(err.to_string())))?;
                     s
                 }
                 Err(err) => {
                     let s = serde_json::json!(
                         {
                             "status":"error",
-                            "error":err.to_string()
+                            "error":err
                         }
                     )
                     .to_string();
-                    self.token_tx
-                        .send(InputMessage::ScriptResult(Err(err.to_string())))?;
+                    self.token_tx.send(InputMessage::ScriptResult(Err(err)))?;
                     s
                 }
             };
@@ -172,13 +160,10 @@ impl LuaHook {
 
 pub fn init_llama(
     cli: crate::Args,
+    prompts: Vec<llm::Content>,
     user_rx: crossbeam::channel::Receiver<String>,
     token_tx: crossbeam::channel::Sender<event_message::InputMessage>,
 ) -> anyhow::Result<HookLlama<LuaHook>> {
-    let prompt = std::fs::read_to_string(&cli.prompt_path)?;
-    let mut prompt: HashMap<String, Vec<lua_llama::llm::Content>> = toml::from_str(&prompt)?;
-    let sys_prompt = prompt.remove("content").unwrap();
-
     let model_params: lua_llama::llm::LlamaModelParams =
         lua_llama::llm::LlamaModelParams::default().with_n_gpu_layers(cli.n_gpu_layers);
 
@@ -200,11 +185,11 @@ pub fn init_llama(
     }
 
     let ctx = if !cli.no_full_chat {
-        llm::LlamaModelFullPromptContext::new(llm, ctx_params, Some(sys_prompt))
+        llm::LlamaModelFullPromptContext::new(llm, ctx_params, Some(prompts))
             .unwrap()
             .into()
     } else {
-        llm::LlamaModelContext::new(llm, ctx_params, Some(sys_prompt))
+        llm::LlamaModelContext::new(llm, ctx_params, Some(prompts))
             .unwrap()
             .into()
     };
