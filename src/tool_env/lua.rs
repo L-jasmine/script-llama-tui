@@ -58,6 +58,15 @@ pub fn new_lua() -> Result<Lua, LuaError> {
     Ok(lua)
 }
 
+impl super::ScriptEngin for Lua {
+    fn eval(&self, code: &str) -> Result<String, String> {
+        self.load(code)
+            .eval::<mlua::Value>()
+            .map_err(|e| e.to_string())
+            .and_then(|v| serde_json::to_string(&v).map_err(|e| e.to_string()))
+    }
+}
+
 pub struct LuaHook {
     lua: mlua::Lua,
     code: Option<String>,

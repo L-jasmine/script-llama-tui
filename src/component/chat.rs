@@ -1,5 +1,6 @@
 use std::collections::LinkedList;
 
+use crossterm::event::{Event, KeyCode, KeyModifiers, MouseEventKind};
 use lua_llama::llm::{Content, Role};
 use lua_llama::Token;
 use ratatui::backend::Backend;
@@ -11,9 +12,9 @@ use ratatui::{
     widgets::{Block, Paragraph},
     Frame,
 };
-use tui_textarea::{Key, TextArea};
+use tui_textarea::TextArea;
 
-use crate::event_message::InputMessage;
+use crate::chat::im_channel::Message;
 
 pub struct MessagesComponent {
     contents: LinkedList<Content>,
@@ -74,52 +75,56 @@ impl MessagesComponent {
         frame.render_widget(paragraph, area);
     }
 
-    pub fn handler_input(&mut self, input: InputMessage) {
+    pub fn handler_input(&mut self, input: Input) {
         match input {
-            InputMessage::Token(Token::Start) => {
+            Input::Message(Message {
+                role: Role::Assistant,
+                contont: Token::Start,
+            }) => {
                 self.wait_token = true;
                 self.contents.push_back(Content {
                     role: Role::Assistant,
                     message: String::with_capacity(64),
                 })
             }
-            InputMessage::Token(Token::Chunk(chunk)) => {
+            Input::Message(Message {
+                role: Role::Assistant,
+                contont: Token::Chunk(chunk),
+            }) => {
                 if let Some(content) = self.contents.back_mut() {
                     content.message.push_str(&chunk);
                 }
             }
-            InputMessage::Token(Token::End(s)) => {
+            Input::Message(Message {
+                role: Role::Assistant,
+                contont: Token::End(chunk),
+            }) => {
                 self.wait_token = false;
                 if let Some(content) = self.contents.back_mut() {
-                    content.message = s;
+                    content.message = chunk;
                 }
             }
 
-            InputMessage::ScriptResult(s) => match s {
-                Ok(s) => {
-                    self.contents.push_back(Content {
-                        role: Role::Tool,
-                        message: s,
-                    });
-                }
-                Err(err) => {
-                    self.contents.push_back(Content {
-                        role: Role::Tool,
-                        message: format!("Error: {}", err.to_string()),
-                    });
-                }
-            },
+            Input::Message(Message {
+                role: Role::Tool,
+                contont: Token::End(chunk),
+            }) => {
+                self.contents.push_back(Content {
+                    role: Role::Tool,
+                    message: chunk,
+                });
+            }
 
-            InputMessage::Input(input) => match input.key {
-                Key::MouseScrollDown => {
-                    if input.ctrl {
+            Input::Event(Event::Mouse(event)) => match event.kind {
+                MouseEventKind::ScrollDown => {
+                    if event.modifiers.contains(KeyModifiers::CONTROL) {
                         self.cursor.1 += 1;
                     } else {
                         self.cursor.0 += 1;
                     }
                 }
-                Key::MouseScrollUp => {
-                    if input.ctrl {
+                MouseEventKind::ScrollUp => {
+                    if event.modifiers.contains(KeyModifiers::CONTROL) {
                         self.cursor.1 = self.cursor.1.max(1) - 1;
                     } else {
                         self.cursor.0 = self.cursor.0.max(1) - 1;
@@ -128,24 +133,29 @@ impl MessagesComponent {
                 }
                 _ => {}
             },
+            _ => {}
         }
     }
 }
 
 pub struct ChatComponent {
-    user_tx: crossbeam::channel::Sender<(Role, String)>,
-    token_rx: crossbeam::channel::Receiver<InputMessage>,
+    user_tx: crossbeam::channel::Sender<Message>,
     messages: MessagesComponent,
     input: TextArea<'static>,
     exit_n: u8,
     pub event: String,
 }
 
+#[derive(Debug)]
+pub enum Input {
+    Event(Event),
+    Message(Message),
+}
+
 impl ChatComponent {
     pub fn new(
         contents: LinkedList<Content>,
-        user_tx: crossbeam::channel::Sender<(Role, String)>,
-        token_rx: crossbeam::channel::Receiver<InputMessage>,
+        user_tx: crossbeam::channel::Sender<Message>,
     ) -> Self {
         Self {
             messages: MessagesComponent::new(contents),
@@ -153,7 +163,6 @@ impl ChatComponent {
             exit_n: 0,
             event: String::new(),
             user_tx,
-            token_rx,
         }
     }
 
@@ -185,7 +194,12 @@ impl ChatComponent {
         let lines = new_textarea.into_lines();
         let message = lines.join("\n");
 
-        self.user_tx.send((Role::User, message.clone())).unwrap();
+        self.user_tx
+            .send(Message {
+                role: Role::User,
+                contont: Token::End(message.clone()),
+            })
+            .unwrap();
 
         self.messages.contents.push_back(Content {
             role: Role::User,
@@ -194,25 +208,25 @@ impl ChatComponent {
         self.messages.lock_on_bottom = true;
     }
 
-    pub fn handler_input<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> bool {
-        let input = self.token_rx.recv().unwrap();
+    pub fn handler_input<B: Backend>(&mut self, terminal: &mut Terminal<B>, input: Input) -> bool {
         self.event = format!("{:?}", input);
         match input {
-            InputMessage::Input(input) if input.key == Key::F(5) => {
+            Input::Event(Event::Key(input)) if input.code == KeyCode::F(5) => {
                 let _ = terminal.clear();
             }
-            InputMessage::Input(input) if (input.key == Key::Char('s') && input.ctrl) => {
+            Input::Event(Event::Key(input))
+                if (input.code == KeyCode::Char('s')
+                    && input.modifiers.contains(KeyModifiers::CONTROL)) =>
+            {
                 if !self.messages.wait_token {
                     self.submit_message();
                 }
             }
-            InputMessage::Input(input) if input.key == Key::Esc => {
+            Input::Event(Event::Key(input)) if input.code == KeyCode::Esc => {
                 self.exit_n += 1;
                 return self.exit_n < 2;
             }
-            InputMessage::Input(input)
-                if (input.key != Key::MouseScrollDown && input.key != Key::MouseScrollUp) =>
-            {
+            Input::Event(Event::Key(input)) => {
                 self.input.input(input);
             }
             input => {

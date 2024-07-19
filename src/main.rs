@@ -1,21 +1,18 @@
-use std::{collections::HashMap, error::Error, io};
+use std::{collections::HashMap, error::Error, num::NonZeroU32};
 
+use chat::im_channel::{self, Message, MessageConsumer, Role};
 use clap::Parser;
-use component::chat::ChatComponent;
-use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+use llm::local_llm;
+use lua_llama::{
+    llm::{self as llama},
+    Token,
 };
-use ratatui::{
-    backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Layout},
-    terminal::{Frame, Terminal},
-    widgets::{Block, Paragraph, Tabs},
-};
+use tool_env::ScriptExecutor;
 
+mod chat;
 mod component;
 mod event_message;
+mod llm;
 mod tool_env;
 
 #[derive(Debug, clap::Parser)]
@@ -54,12 +51,23 @@ struct Args {
     n_batch: u32,
 }
 
-#[derive(Debug, Clone, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
 enum ModelType {
     Llama3,
     Hermes2ProLlama3,
     Gemma2,
     Qwen,
+}
+
+impl Into<llama::LlmPromptTemplate> for ModelType {
+    fn into(self) -> llama::LlmPromptTemplate {
+        match self {
+            ModelType::Llama3 => llama::llama3::llama3_prompt_template(),
+            ModelType::Hermes2ProLlama3 => llama::llama3::hermes_2_pro_llama3_prompt_template(),
+            ModelType::Gemma2 => llama::gemma::gemma2_prompt_template(),
+            ModelType::Qwen => llama::qwen::qwen_prompt_template(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -71,23 +79,58 @@ enum Engine {
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Args::parse();
 
-    let (user_tx, user_rx) = crossbeam::channel::unbounded();
-    let (token_tx, token_rx) = crossbeam::channel::unbounded();
+    let (chan_close_tx, chan_close_rx) = crossbeam::channel::bounded(1);
 
-    let token_tx_ = token_tx.clone();
+    let mut chan = im_channel::ImChannel::new(chan_close_rx);
 
-    let app = ChatComponent::new(Default::default(), user_tx, token_rx);
+    let rx = chan.register(component::App::filter);
+    let app = component::App::new(rx, chan.new_message_tx());
+
+    let rx = chan.register(tool_env::filter);
+    let chan_tx = chan.new_message_tx();
+    match cli.engine {
+        Engine::Lua => std::thread::spawn(move || {
+            let script_executor =
+                ScriptExecutor::new(tool_env::lua::new_lua().unwrap(), rx, chan_tx);
+            script_executor.run_loop()
+        }),
+        Engine::Rhai => std::thread::spawn(move || {
+            let script_executor = ScriptExecutor::new(tool_env::rhai::new_rhai(), rx, chan_tx);
+            script_executor.run_loop()
+        }),
+    };
 
     let llama_result;
 
+    let rx = chan.register(local_llm::LocalLlama::filter);
+    let chan_tx = chan.new_message_tx();
+
     if cli.debug_ui {
         llama_result = std::thread::spawn(move || {
-            while let Ok((_, input)) = user_rx.recv() {
-                let _ = token_tx.send(event_message::InputMessage::Token(lua_llama::Token::Start));
-                std::thread::sleep(std::time::Duration::from_secs(1));
-                let _ = token_tx.send(event_message::InputMessage::Token(lua_llama::Token::End(
-                    input,
-                )));
+            // while let Ok((_, input)) = rx.recv() {
+            //     let _ = token_tx.send(event_message::InputMessage::Token(lua_llama::Token::Start));
+            //     std::thread::sleep(std::time::Duration::from_secs(1));
+            //     let _ = token_tx.send(event_message::InputMessage::Token(lua_llama::Token::End(
+            //         input,
+            //     )));
+            // }
+            while let Ok(input) = rx.recv() {
+                match input {
+                    Message {
+                        role: Role::User,
+                        contont: Token::End(message),
+                    } => {
+                        let _ = chan_tx.send(Message {
+                            role: Role::Assistant,
+                            contont: Token::Start,
+                        });
+                        let _ = chan_tx.send(Message {
+                            role: Role::Assistant,
+                            contont: Token::End(message),
+                        });
+                    }
+                    _ => {}
+                }
             }
             Ok(())
         });
@@ -96,47 +139,47 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut prompt: HashMap<String, Vec<lua_llama::llm::Content>> = toml::from_str(&prompt)?;
         let prompts = prompt.remove("content").unwrap();
 
+        let template = cli.model_type.into();
+
         let (wait_tx, wait_rx) = crossbeam::channel::bounded(1);
 
-        llama_result = std::thread::spawn(move || match cli.engine {
-            Engine::Lua => {
-                let mut lua_llama = tool_env::lua::init_llama(cli, prompts, user_rx, token_tx)?;
-                wait_tx.send(())?;
-                lua_llama.chat()
+        llama_result = std::thread::spawn(move || {
+            let model_params: lua_llama::llm::LlamaModelParams =
+                lua_llama::llm::LlamaModelParams::default().with_n_gpu_layers(cli.n_gpu_layers);
+
+            let llm = llama::LlmModel::new(cli.model_path, model_params, template)
+                .map_err(|e| anyhow::anyhow!(e))?;
+
+            let mut ctx_params =
+                llama::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(cli.ctx_size));
+            if cli.n_batch > 0 {
+                ctx_params = ctx_params.with_n_batch(cli.n_batch);
             }
-            Engine::Rhai => {
-                let mut rhai_llama = tool_env::rhai::init_llama(cli, prompts, user_rx, token_tx)?;
-                wait_tx.send(())?;
-                rhai_llama.chat()
-            }
+
+            let ctx = if cli.no_full_chat {
+                llama::LlamaModelContext::new(llm, ctx_params, Some(prompts))
+                    .unwrap()
+                    .into()
+            } else {
+                llama::LlamaModelFullPromptContext::new(llm, ctx_params, Some(prompts))
+                    .unwrap()
+                    .into()
+            };
+
+            let mut local_llama = llm::local_llm::LocalLlama::new(ctx, rx, chan_tx);
+            wait_tx.send(()).unwrap();
+
+            local_llama.run_loop()
         });
 
         wait_rx.recv()?;
     }
 
-    std::thread::spawn(move || {
-        event_message::listen_input(token_tx_);
-    });
+    std::thread::spawn(move || chan.run_loop());
 
-    // setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let res = app.run_loop();
 
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    // create app and run it
-    let res = run_app(&mut terminal, app);
-
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    let _ = chan_close_tx.send(());
 
     let llama_result = llama_result.join().unwrap();
     if let Err(err) = llama_result {
@@ -148,34 +191,4 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
-}
-
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: ChatComponent) -> io::Result<()> {
-    loop {
-        terminal.draw(|f| ui(f, &mut app))?;
-        if !app.handler_input(terminal) {
-            return Ok(());
-        }
-    }
-}
-
-fn ui(f: &mut Frame, app: &mut ChatComponent) {
-    let vertical = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(3),
-        Constraint::Length(1),
-    ]);
-
-    let [tabs_area, main_area, help_area] = vertical.areas(f.size());
-
-    let tabs = Tabs::new(vec!["Chat", "Setting"])
-        .select(0)
-        .padding("[", "]")
-        .block(Block::bordered());
-
-    f.render_widget(tabs, tabs_area);
-    app.render(f, main_area);
-
-    let help_message = Paragraph::new(format!("help... event:{}", app.event));
-    f.render_widget(help_message, help_area);
 }

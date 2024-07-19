@@ -46,7 +46,7 @@ fn get_current_time(_context: &NativeCallContext) -> Result<Dynamic, Box<rhai::E
     to_dynamic(s)
 }
 
-fn new_rhai() -> Engine {
+pub fn new_rhai() -> Engine {
     let mut engine = Engine::new();
     engine
         .register_fn("send_sms", send_sms)
@@ -54,6 +54,18 @@ fn new_rhai() -> Engine {
         .register_fn("get_weather", get_weather)
         .register_fn("get_current_time", get_current_time);
     engine
+}
+
+impl super::ScriptEngin for Engine {
+    fn eval(&self, code: &str) -> Result<String, String> {
+        let r = self
+            .eval::<rhai::Dynamic>(&code)
+            .and_then(|d| from_dynamic::<serde_json::Value>(&d));
+        match r {
+            Ok(s) => Ok(s.to_string()),
+            Err(err) => Err(err.to_string()),
+        }
+    }
 }
 
 pub struct RhaiHook {
