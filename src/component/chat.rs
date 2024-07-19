@@ -1,8 +1,6 @@
 use std::collections::LinkedList;
 
 use crossterm::event::{Event, KeyCode, KeyModifiers, MouseEventKind};
-use lua_llama::llm::{Content, Role};
-use lua_llama::Token;
 use ratatui::backend::Backend;
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::Terminal;
@@ -12,6 +10,8 @@ use ratatui::{
     widgets::{Block, Paragraph},
     Frame,
 };
+use simple_llama::llm::{Content, Role};
+use simple_llama::Token;
 use tui_textarea::TextArea;
 
 use crate::chat::im_channel::Message;

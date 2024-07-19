@@ -1,4 +1,4 @@
-use lua_llama::Token;
+use simple_llama::Token;
 
 use crate::chat::im_channel::{Message, Role};
 

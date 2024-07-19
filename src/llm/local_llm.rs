@@ -1,4 +1,4 @@
-use lua_llama::{HookLlama, IOHook, Token};
+use simple_llama::{HookLlama, IOHook, Token};
 
 use crate::chat::im_channel::{Message, MessageRx, MessageTx, Role};
 
@@ -8,14 +8,14 @@ struct ScriptHook {
 }
 
 impl IOHook for ScriptHook {
-    fn get_input(&mut self) -> anyhow::Result<Option<lua_llama::llm::Content>> {
+    fn get_input(&mut self) -> anyhow::Result<Option<simple_llama::llm::Content>> {
         while let Ok(input) = self.rx.recv() {
             match input {
                 Message {
                     role,
                     contont: Token::End(message),
                 } if role == Role::User || role == Role::Tool => {
-                    let c = lua_llama::llm::Content { role, message };
+                    let c = simple_llama::llm::Content { role, message };
                     return Ok(Some(c));
                 }
 
@@ -25,7 +25,7 @@ impl IOHook for ScriptHook {
         Ok(None)
     }
 
-    fn token_callback(&mut self, token: lua_llama::Token) -> anyhow::Result<()> {
+    fn token_callback(&mut self, token: simple_llama::Token) -> anyhow::Result<()> {
         self.tx.send(Message {
             role: Role::Assistant,
             contont: token,
@@ -33,7 +33,7 @@ impl IOHook for ScriptHook {
         Ok(())
     }
 
-    fn parse_input(&mut self, content: &mut lua_llama::llm::Content) {
+    fn parse_input(&mut self, content: &mut simple_llama::llm::Content) {
         match content.role {
             Role::User => {
                 content.message = serde_json::json!({
@@ -56,7 +56,7 @@ pub struct LocalLlama {
 }
 
 impl LocalLlama {
-    pub fn new(ctx: lua_llama::LlamaCtx, rx: MessageRx, tx: MessageTx) -> Self {
+    pub fn new(ctx: simple_llama::LlamaCtx, rx: MessageRx, tx: MessageTx) -> Self {
         let hook = HookLlama::new(ctx, ScriptHook { rx, tx });
 
         LocalLlama { hook }

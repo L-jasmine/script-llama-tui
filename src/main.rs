@@ -3,7 +3,7 @@ use std::{collections::HashMap, error::Error, num::NonZeroU32};
 use chat::im_channel;
 use clap::Parser;
 use llm::local_llm;
-use lua_llama::llm::{self as llama};
+use simple_llama::llm::{self as llama};
 use tool_env::ScriptExecutor;
 
 mod chat;
@@ -103,7 +103,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         llama_result = debug_tool::echo_assistant(tx, rx);
     } else {
         let prompt = std::fs::read_to_string(&cli.prompt_path)?;
-        let mut prompt: HashMap<String, Vec<lua_llama::llm::Content>> = toml::from_str(&prompt)?;
+        let mut prompt: HashMap<String, Vec<simple_llama::llm::Content>> = toml::from_str(&prompt)?;
         let prompts = prompt.remove("content").unwrap();
 
         let template = cli.model_type.into();
@@ -111,8 +111,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         let (wait_tx, wait_rx) = crossbeam::channel::bounded(1);
 
         llama_result = std::thread::spawn(move || {
-            let model_params: lua_llama::llm::LlamaModelParams =
-                lua_llama::llm::LlamaModelParams::default().with_n_gpu_layers(cli.n_gpu_layers);
+            let model_params: simple_llama::llm::LlamaModelParams =
+                simple_llama::llm::LlamaModelParams::default().with_n_gpu_layers(cli.n_gpu_layers);
 
             let llm = llama::LlmModel::new(cli.model_path, model_params, template)
                 .map_err(|e| anyhow::anyhow!(e))?;

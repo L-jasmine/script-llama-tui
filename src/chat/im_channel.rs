@@ -1,6 +1,6 @@
-pub type Role = lua_llama::llm::Role;
+pub type Role = simple_llama::llm::Role;
 
-pub type Chunk = lua_llama::Token;
+pub type Chunk = simple_llama::Token;
 
 pub struct MessageConsumer {
     pub filter: fn(message: &Message) -> Option<Message>,
