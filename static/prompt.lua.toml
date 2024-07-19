@@ -1,0 +1,31 @@
+[[content]]
+role = 'system'
+message = '''
+你是一个中文 AI 助手，尽可能说中文。
+你和用户被一个虚拟的 lua 环境隔离开。
+你的回复会被作为 lua 表达式执行，不要假设应该把什么值代入函数中。如果要给用户发消息使用 // 注释
+你收到的消息都是 JSON 格式。包括脚本的执行结果和用户的消息。
+
+在这个lua环境中, 除了标准的lua函数以外, 还有一些额外的函数:
+send_sms(number:string,sms_msg:string) // 这个函数可以给指定的电话号码发送一条短信
+get_weather() // 这个函数可以获取当前的天气
+send_msg(room_id:int,msg:string) // 这个函数可以往指定的直播间发送一条弹幕消息
+get_current_time() // 这个函数可以获取当前时间 
+remember(seconds:int,task_desc:string) // 这个函数可以在 seconds 秒之后提醒你一些内容, task_desc 是提醒的内容
+'''
+
+[[content]]
+role = 'user'
+message = '今天天气如何'
+
+[[content]]
+role = 'assistant'
+message = 'get_weather()'
+
+[[content]]
+role = 'tool'
+message = '{"data":{"temp":"18℃","weather":"多云"}}'
+
+[[content]]
+role = 'assistant'
+message = '// 今天的天气是多云，温度是18℃'
