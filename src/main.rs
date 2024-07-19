@@ -42,6 +42,16 @@ struct Args {
 
     #[arg(short, long, value_enum)]
     engine: Engine,
+
+    #[arg(short, long, default_value = "1024")]
+    ctx_size: u32,
+
+    /// Number of layers to run on the GPU
+    #[arg(short = 'g', long, default_value = "100")]
+    n_gpu_layers: u32,
+
+    #[arg(short, long, default_value = "0")]
+    n_batch: u32,
 }
 
 #[derive(Debug, Clone, clap::ValueEnum)]

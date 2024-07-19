@@ -164,7 +164,7 @@ pub fn init_llama(
     let sys_prompt = prompt.remove("content").unwrap();
 
     let model_params: lua_llama::llm::LlamaModelParams =
-        lua_llama::llm::LlamaModelParams::default().with_n_gpu_layers(512);
+        lua_llama::llm::LlamaModelParams::default().with_n_gpu_layers(cli.n_gpu_layers);
 
     let template = match cli.model_type {
         ModelType::Llama3 => llm::llama3::llama3_prompt_template(),
@@ -177,13 +177,17 @@ pub fn init_llama(
     let hook = RhaiHook::new(user_rx, token_tx, rhai);
 
     let llm = llm::LlmModel::new(cli.model_path, model_params, template)?;
+    let mut ctx_params =
+        llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(cli.ctx_size));
+    if cli.n_batch > 0 {
+        ctx_params = ctx_params.with_n_batch(cli.n_batch);
+    }
+
     let ctx = if !cli.no_full_chat {
-        let ctx_params = llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(1024));
         llm::LlamaModelFullPromptContext::new(llm, ctx_params, Some(sys_prompt))
             .unwrap()
             .into()
     } else {
-        let ctx_params = llm::LlamaContextParams::default().with_n_ctx(NonZeroU32::new(1024));
         llm::LlamaModelContext::new(llm, ctx_params, Some(sys_prompt))
             .unwrap()
             .into()
