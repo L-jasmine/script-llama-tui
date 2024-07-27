@@ -27,7 +27,7 @@ fn get_weather() -> Result<Dynamic, Box<rhai::EvalAltResult>> {
 }
 
 fn get_current_time(_context: &NativeCallContext) -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-    let time = std::time::SystemTime::now();
+    let time = chrono::Local::now().to_rfc3339();
     let s = serde_json::json!({
         "status":"ok",
         "time": time

@@ -1,0 +1,32 @@
+model_path = "../models/Gemma-2-9B-Chinese-Chat-Q5_K_M.gguf"
+prompts = "./static/prompt.toml"
+template = "gemma2"
+
+[run]
+ctx_size = 2048
+batch_size = 128
+n_gpu_layers = 100
+
+[templates.qwen]
+header_prefix = "<|im_start|>"
+header_suffix = "\n"
+end_of_content = "<|im_end|>\n"
+stops = ["<|im_end|>"]
+
+[templates.llama3]
+header_prefix = "<|start_header_id|>"
+header_suffix = "<|end_header_id|>\n"
+end_of_content = "<|eot_id|>\n"
+stops = ["<|eot_id|>"]
+
+[templates.gemma2]
+header_prefix = "<|start_of_turn|>"
+header_suffix = "\n"
+end_of_content = "<|end_of_turn|>\n"
+stops = ["<|end_of_turn|>"]
+
+[templates.phi-3]
+header_prefix = "<|"
+header_suffix = "|>\n"
+end_of_content = "<|end|>\n"
+stops = ["<|end|>"]

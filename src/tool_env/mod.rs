@@ -1,6 +1,7 @@
-use simple_llama::Token;
-
-use crate::chat::im_channel::{self, Message, MessageRx, MessageTx, Role};
+use crate::{
+    chat::im_channel::{self, Message, MessageRx, MessageTx, Role},
+    llm::local_llm::Token,
+};
 
 pub mod lua;
 pub mod rhai;

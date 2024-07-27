@@ -1,6 +1,8 @@
+use crate::llm::local_llm::Token;
+
 pub type Role = simple_llama::llm::Role;
 
-pub type Chunk = simple_llama::Token;
+pub type Chunk = Token;
 
 pub struct MessageConsumer {
     pub filter: fn(message: &Message) -> Option<Message>,

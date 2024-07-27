@@ -11,10 +11,10 @@ use ratatui::{
     Frame,
 };
 use simple_llama::llm::{Content, Role};
-use simple_llama::Token;
 use tui_textarea::TextArea;
 
 use crate::chat::im_channel::Message;
+use crate::llm::local_llm::Token;
 
 pub struct MessagesComponent {
     contents: LinkedList<Content>,
@@ -223,8 +223,8 @@ impl ChatComponent {
                 }
             }
             Input::Event(Event::Key(input)) if input.code == KeyCode::Esc => {
-                self.exit_n += 1;
-                return self.exit_n < 2;
+                self.exit_n += 50;
+                return self.exit_n < 100;
             }
             Input::Event(Event::Key(input)) => {
                 self.input.input(input);
@@ -233,7 +233,7 @@ impl ChatComponent {
                 self.messages.handler_input(input);
             }
         }
-        self.exit_n = 0;
+        self.exit_n = self.exit_n.max(1) - 1;
         true
     }
 }

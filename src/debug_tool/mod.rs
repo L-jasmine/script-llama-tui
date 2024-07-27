@@ -1,6 +1,7 @@
-use simple_llama::Token;
-
-use crate::chat::im_channel::{Message, Role};
+use crate::{
+    chat::im_channel::{Message, Role},
+    llm::local_llm::Token,
+};
 
 pub fn echo_assistant(
     tx: crossbeam::channel::Sender<Message>,

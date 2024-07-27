@@ -24,7 +24,7 @@ pub fn new_lua() -> Result<Lua, LuaError> {
     )?;
 
     let remember = lua.create_function(
-        |lua, (time, text): (u64, String)| -> LuaResult<mlua::Table> {
+        |lua, (_time, _text): (u64, String)| -> LuaResult<mlua::Table> {
             let r = lua.create_table()?;
             r.set("status", "ok")?;
             Ok(r)
@@ -39,10 +39,19 @@ pub fn new_lua() -> Result<Lua, LuaError> {
         Ok(r)
     })?;
 
+    let get_current_time = lua.create_function(|lua, _: ()| -> LuaResult<mlua::Table> {
+        let time = chrono::Local::now().to_rfc3339();
+        let r = lua.create_table()?;
+        r.set("status", "ok")?;
+        r.set("time", time)?;
+        Ok(r)
+    })?;
+
     lua.globals().set("send_sms", send_sms)?;
     lua.globals().set("send_msg", send_msg)?;
     lua.globals().set("remember", remember)?;
     lua.globals().set("get_weather", get_weather)?;
+    lua.globals().set("get_current_time", get_current_time)?;
 
     Ok(lua)
 }

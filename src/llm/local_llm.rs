@@ -1,4 +1,9 @@
-use simple_llama::{HookLlama, IOHook, Token};
+use std::sync::Arc;
+
+use simple_llama::{
+    llm::{ChatRequest, LlamaCtx, SimpleOption},
+    Content,
+};
 
 use crate::chat::im_channel::{Message, MessageRx, MessageTx, Role};
 
@@ -7,8 +12,15 @@ struct ScriptHook {
     tx: MessageTx,
 }
 
-impl IOHook for ScriptHook {
-    fn get_input(&mut self) -> anyhow::Result<Option<simple_llama::llm::Content>> {
+#[derive(Debug, Clone)]
+pub enum Token {
+    Start,
+    Chunk(String),
+    End(String),
+}
+
+impl ScriptHook {
+    fn get_input(&mut self) -> anyhow::Result<Option<Content>> {
         while let Ok(input) = self.rx.recv() {
             match input {
                 Message {
@@ -25,45 +37,52 @@ impl IOHook for ScriptHook {
         Ok(None)
     }
 
-    fn token_callback(&mut self, token: simple_llama::Token) -> anyhow::Result<()> {
+    fn token_callback(&mut self, token: Token) -> anyhow::Result<()> {
         self.tx.send(Message {
             role: Role::Assistant,
             contont: token,
         })?;
         Ok(())
     }
-
-    fn parse_input(&mut self, content: &mut simple_llama::llm::Content) {
-        match content.role {
-            Role::User => {
-                content.message = serde_json::json!({
-                    "role":"user",
-                    "message":content.message
-                })
-                .to_string();
-            }
-            Role::Tool => {
-                content.role = Role::User;
-                content.message = format!("{{ \"role\":\"tool\",\"message\":{}}}", content.message);
-            }
-            _ => {}
-        }
-    }
 }
 
 pub struct LocalLlama {
-    hook: HookLlama<ScriptHook>,
+    ctx: LlamaCtx,
+    hook: ScriptHook,
+    prompts: Vec<Arc<Content>>,
 }
 
 impl LocalLlama {
-    pub fn new(ctx: simple_llama::LlamaCtx, rx: MessageRx, tx: MessageTx) -> Self {
-        let hook = HookLlama::new(ctx, ScriptHook { rx, tx });
-
-        LocalLlama { hook }
+    pub fn new(ctx: LlamaCtx, prompts: Vec<Arc<Content>>, rx: MessageRx, tx: MessageTx) -> Self {
+        let hook = ScriptHook { rx, tx };
+        LocalLlama { ctx, hook, prompts }
     }
 
     pub fn run_loop(&mut self) -> anyhow::Result<()> {
-        self.hook.chat()
+        loop {
+            let c = match self.hook.get_input()? {
+                Some(c) => c,
+                None => return Err(anyhow::anyhow!("input is clone")),
+            };
+            self.prompts.push(Arc::new(c));
+
+            self.hook.token_callback(Token::Start)?;
+            let mut stream = self.ctx.chat(ChatRequest {
+                prompts: self.prompts.clone(),
+                simple_option: SimpleOption::Temp(0.7),
+            })?;
+
+            for token in &mut stream {
+                self.hook.token_callback(Token::Chunk(token))?;
+            }
+
+            let message: String = stream.into();
+            self.hook.token_callback(Token::End(message.clone()))?;
+            self.prompts.push(Arc::new(Content {
+                role: Role::Assistant,
+                message,
+            }));
+        }
     }
 
     pub fn filter(message: &Message) -> Option<Message> {

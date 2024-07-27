@@ -4,18 +4,22 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-crossterm = "0.27.0"
 env_logger = "0.11.3"
 log = "0.4.22"
+
+crossterm = "0.27.0"
 ratatui = { version = "0.27.0", features = ["crossterm"] }
 tui-textarea = "0.5.0"
 # simple_llama = { path = "../lua_llama" }
 simple_llama = { git = "https://github.com/L-jasmine/simple_llama.git" }
 crossbeam = "0.8.4"
 anyhow = "1.0.86"
-mlua = { version = "0.9.9", features = ["lua54", "vendored", "serialize"] }
 
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.120"
 clap = { version = "4.5.7", features = ["derive"] }
 toml = "0.8.14"
+
 rhai = { version = "1.19.0", features = ["serde", "internals"] }
+mlua = { version = "0.9.9", features = ["lua54", "vendored", "serialize"] }
+chrono = "0.4.38"
